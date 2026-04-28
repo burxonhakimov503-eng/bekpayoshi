@@ -1,694 +1,636 @@
 require('dotenv').config();
-const { Telegraf, session, Scenes, Markup } = require('telegraf');
-const fs = require('fs');
+const { Telegraf, Markup, session, Scenes } = require('telegraf');
+const express = require('express');
 const path = require('path');
+const fs = require('fs');
+const https = require('https');
+const { spawn } = require('child_process');
+const multer = require('multer');
 
-// Atrof-muhit o'zgaruvchilari
-const BOT_TOKEN = process.env.BOT_TOKEN;
-const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID;
+const bot = new Telegraf(process.env.BOT_TOKEN);
+const app = express();
+// Note: express.json() only for non-multipart routes
+const PORT = process.env.PORT || 3000;
 
-if (!BOT_TOKEN) {
-    console.error("BOT_TOKEN mavjud emas! Iltimos .env faylini tekshiring.");
-    process.exit(1);
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        const dir = './uploads';
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir);
+        cb(null, dir);
+    },
+    filename: (req, file, cb) => {
+        cb(null, Date.now() + path.extname(file.originalname));
+    }
+});
+const upload = multer({ storage });
+app.use('/uploads', express.static('uploads'));
+let webAppUrl = ''; 
+
+// --- DATABASE SETUP ---
+const usersFile = path.join(__dirname, 'users.json');
+let userPhones = {};
+if (fs.existsSync(usersFile)) {
+    userPhones = JSON.parse(fs.readFileSync(usersFile, 'utf8'));
+}
+function saveUsers() {
+    fs.writeFileSync(usersFile, JSON.stringify(userPhones, null, 2));
 }
 
-// Botni initsializatsiya qilish
-const bot = new Telegraf(BOT_TOKEN);
+const productsFile = path.join(__dirname, 'products.json');
+let products = [];
+if (fs.existsSync(productsFile)) {
+    products = JSON.parse(fs.readFileSync(productsFile, 'utf8'));
+}
+function saveProducts() {
+    fs.writeFileSync(productsFile, JSON.stringify(products, null, 2));
+}
 
-// Spamdan himoya tizimi (Rate Limiting)
-const userLimits = new Map();
-bot.use((ctx, next) => {
-    if (!ctx.from) return next();
-    const userId = ctx.from.id;
-    const now = Date.now();
-    const user = userLimits.get(userId) || { count: 0, lastMessage: now };
-    
-    if (now - user.lastMessage > 2000) {
-        user.count = 1;
-        user.lastMessage = now;
-    } else {
-        user.count++;
-    }
-    userLimits.set(userId, user);
-    
-    // Agar foydalanuvchi qisqa vaqt ichida juda ko'p xabar yuborsa
-    if (user.count > 4) {
-        return; 
-    }
-    return next();
+// --- PROMO IMAGES ---
+const promoFile = path.join(__dirname, 'promo.json');
+let promoImages = [];
+if (fs.existsSync(promoFile)) {
+    promoImages = JSON.parse(fs.readFileSync(promoFile, 'utf8'));
+}
+function savePromoImages() {
+    fs.writeFileSync(promoFile, JSON.stringify(promoImages, null, 2));
+}
+
+// --- NEWS SETUP ---
+const newsFile = path.join(__dirname, 'news.json');
+let news = [];
+if (fs.existsSync(newsFile)) {
+    news = JSON.parse(fs.readFileSync(newsFile, 'utf8'));
+}
+function saveNews() {
+    fs.writeFileSync(newsFile, JSON.stringify(news, null, 2));
+}
+
+// --- ORDERS SETUP ---
+const ordersFile = path.join(__dirname, 'orders.json');
+let orders = [];
+if (fs.existsSync(ordersFile)) {
+    orders = JSON.parse(fs.readFileSync(ordersFile, 'utf8'));
+}
+function saveOrders() {
+    fs.writeFileSync(ordersFile, JSON.stringify(orders, null, 2));
+}
+
+// Test endpoint
+app.get('/api/test', (req, res) => {
+    res.json({ ok: true, products: products.length, promo: promoImages.length });
 });
 
-// Ma'lumotlar bazasi bilan ishlash (PostgreSQL)
-const { Pool } = require('pg');
+// --- EXPRESS SERVER ---
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'webapp.html'));
+});
 
-let pool;
-if (process.env.DATABASE_URL) {
-    pool = new Pool({
-        connectionString: process.env.DATABASE_URL,
-        ssl: { rejectUnauthorized: false }
+// API endpoint for WebApp to load products
+app.get('/api/products', (req, res) => {
+    res.json(products);
+});
+
+// Proxy for Telegram images to hide Bot Token from frontend
+app.get('/api/image/:file_id', async (req, res) => {
+    try {
+        const fileUrl = await bot.telegram.getFileLink(req.params.file_id);
+        https.get(fileUrl, (response) => {
+            res.setHeader('Content-Type', 'image/jpeg');
+            response.pipe(res);
+        });
+    } catch(e) {
+        res.status(404).send('Not found');
+    }
+});
+
+// Promo slides API — mini app tomonidan chaqiriladi
+app.get('/api/promo', (req, res) => {
+    const result = promoImages.map(p => ({
+        image: p.image_file_id ? '/api/image/' + p.image_file_id : p.image_url
+    }));
+    res.json(result);
+});
+
+// Bot avatar proxy
+app.get('/api/bot-avatar', async (req, res) => {
+    try {
+        const me = await bot.telegram.getMe();
+        const photos = await bot.telegram.getUserProfilePhotos(me.id);
+        if (photos.total_count > 0) {
+            const fileId = photos.photos[0][photos.photos[0].length - 1].file_id;
+            const fileUrl = await bot.telegram.getFileLink(fileId);
+            const url = typeof fileUrl === 'string' ? fileUrl : fileUrl.href;
+            https.get(url, (response) => {
+                res.setHeader('Content-Type', 'image/jpeg');
+                res.setHeader('Cache-Control', 'public, max-age=86400');
+                response.pipe(res);
+            }).on('error', () => res.status(404).send('No avatar'));
+        } else {
+            res.status(404).send('No avatar');
+        }
+    } catch(e) {
+        console.error('Bot avatar xatosi:', e.message);
+        res.status(404).send('Error');
+    }
+});
+
+// Upload promo image API
+app.post('/api/upload-promo', upload.single('photo'), (req, res) => {
+    if (!req.file) return res.status(400).send('No file uploaded');
+    const imageUrl = '/uploads/' + req.file.filename;
+    promoImages.push({ image_file_id: null, image_url: imageUrl });
+    savePromoImages();
+    res.json({ success: true, imageUrl });
+});
+
+// Admin: Delete promo image
+app.delete('/api/admin/delete-promo/:index', (req, res) => {
+    const index = parseInt(req.params.index);
+    if (index >= 0 && index < promoImages.length) {
+        promoImages.splice(index, 1);
+        savePromoImages();
+        res.json({ success: true });
+    } else {
+        res.status(404).json({ success: false, message: 'Not found' });
+    }
+});
+
+// Admin: Add product
+app.post('/api/admin/add-product', upload.single('photo'), (req, res) => {
+    try {
+        const name = req.body.name;
+        const price = req.body.price;
+        const category = req.body.category;
+        const desc = req.body.desc || '';
+        const imageUrl = req.file ? '/uploads/' + req.file.filename : null;
+
+        if (!name || !price || !category || !imageUrl) {
+            console.log('Missing fields:', { name, price, category, imageUrl, file: !!req.file });
+            return res.status(400).json({ success: false, message: 'Barcha maydonlarni to\'ldiring!' });
+        }
+
+        const newProduct = {
+            id: Date.now().toString(),
+            name,
+            price: parseInt(price),
+            category,
+            desc,
+            image_file_id: null,
+            image_url: imageUrl
+        };
+        products.push(newProduct);
+        saveProducts();
+        console.log('Product added:', newProduct.name);
+        res.json({ success: true, product: newProduct });
+    } catch (err) {
+        console.error('Add product error:', err.message);
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// Admin: Delete product
+app.delete('/api/admin/delete-product/:id', (req, res) => {
+    products = products.filter(p => p.id !== req.params.id);
+    saveProducts();
+    res.json({ success: true });
+});
+
+// Orders API for specific user
+app.get('/api/orders/:user_id', (req, res) => {
+    const user_id = req.params.user_id;
+    const userOrders = orders.filter(o => o.user_id.toString() === user_id.toString());
+    res.json(userOrders);
+});
+
+// Admin Analytics API
+app.get('/api/admin/stats', (req, res) => {
+    try {
+        const now = new Date();
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+        const startOfWeek = new Date(now.setDate(now.getDate() - now.getDay())).getTime();
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+
+        const totalUsers = Object.keys(userPhones).length;
+        const totalOrders = orders.length;
+        
+        let totalRevenue = 0;
+        let todayRevenue = 0, todayOrders = 0;
+        let weekRevenue = 0, weekOrders = 0;
+        let monthRevenue = 0, monthOrders = 0;
+
+        const productSales = {};
+        const hourlyStats = Array(24).fill(0);
+
+        orders.forEach(order => {
+            const orderTime = new Date(order.date).getTime();
+            const orderTotal = parseInt(order.total) || 0;
+            
+            totalRevenue += orderTotal;
+
+            // Time-based stats
+            if (orderTime >= today) { todayRevenue += orderTotal; todayOrders++; }
+            if (orderTime >= startOfWeek) { weekRevenue += orderTotal; weekOrders++; }
+            if (orderTime >= startOfMonth) { monthRevenue += orderTotal; monthOrders++; }
+
+            // Product aggregation
+            order.items.forEach(item => {
+                productSales[item.name] = (productSales[item.name] || 0) + (parseInt(item.quantity) || 0);
+            });
+
+            // Hourly distribution
+            const hour = new Date(order.date).getHours();
+            hourlyStats[hour]++;
+        });
+
+        const topProducts = Object.entries(productSales)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 5)
+            .map(([name, count]) => ({ name, count }));
+
+        res.json({
+            success: true,
+            totalUsers,
+            totalOrders,
+            totalRevenue,
+            periods: {
+                today: { revenue: todayRevenue, count: todayOrders },
+                week: { revenue: weekRevenue, count: weekOrders },
+                month: { revenue: monthRevenue, count: monthOrders }
+            },
+            topProducts,
+            hourlyStats,
+            recentOrders: orders.slice(0, 10)
+        });
+    } catch (err) {
+        console.error('Stats error:', err);
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// Admin: Add News
+app.post('/api/admin/add-news', upload.single('photo'), (req, res) => {
+    const { title, text } = req.body;
+    const imageUrl = req.file ? '/uploads/' + req.file.filename : null;
+
+    const newNews = {
+        id: Date.now().toString(),
+        title,
+        text,
+        image_url: imageUrl,
+        date: new Date().toISOString()
+    };
+    news.unshift(newNews);
+    saveNews();
+    res.json({ success: true, news: newNews });
+});
+
+// Admin: Delete News
+app.delete('/api/admin/delete-news/:id', (req, res) => {
+    news = news.filter(n => n.id !== req.params.id);
+    saveNews();
+    res.json({ success: true });
+});
+
+function startTunnel() {
+    console.log('HTTPS Tunnel yaratilmoqda...');
+    
+    const tunnel = spawn('ssh', [
+        '-R', '80:localhost:3000', 
+        'nokey@localhost.run', 
+        '-T', 
+        '-o', 'StrictHostKeyChecking=no',
+        '-o', 'ServerAliveInterval=60'
+    ]);
+    
+    tunnel.stdout.on('data', (data) => extractUrl(data.toString()));
+    tunnel.stderr.on('data', (data) => extractUrl(data.toString()));
+
+    function extractUrl(text) {
+        const match = text.match(/https:\/\/[a-zA-Z0-9.-]+\.lhr\.life/);
+        if (match && webAppUrl !== match[0]) {
+            webAppUrl = match[0];
+            console.log(`\n✅ WEBAPP TAYYOR! Manzil: ${webAppUrl}\n`);
+            console.log('Menu button yangilanmoqda...');
+            bot.telegram.setChatMenuButton({
+                menu_button: { type: 'web_app', text: '🍽 Menyu', web_app: { url: webAppUrl } }
+            }).then(() => {
+                console.log("✅ Menu button muvaffaqiyatli yangilandi!");
+            }).catch(err => console.log("❌ Menu button yangilashda xato:", err.message));
+        }
+    }
+
+    tunnel.on('close', (code) => {
+        console.log(`Tunnel uzildi (kod: ${code}). 5 soniyadan so'ng qayta ulanadi...`);
+        setTimeout(startTunnel, 5000);
     });
 }
 
-let memoryData = { users: [], orders: 0, loads: [] };
-
-// Ma'lumotlarni faylga yozish (zaxira va local test uchun)
-const dataFile = path.join(__dirname, 'data.json');
-
-async function initDB() {
-    if (!pool) {
-        if (fs.existsSync(dataFile)) {
-            memoryData = JSON.parse(fs.readFileSync(dataFile, 'utf8'));
-            if (!memoryData.loads) memoryData.loads = [];
-        }
-        return;
-    }
-    
-    await pool.query(`
-        CREATE TABLE IF NOT EXISTS app_state (
-            id SERIAL PRIMARY KEY,
-            data JSONB NOT NULL
-        );
-    `);
-    
-    const res = await pool.query('SELECT data FROM app_state WHERE id = 1');
-    if (res.rows.length > 0) {
-        memoryData = res.rows[0].data;
-        if (!memoryData.loads) memoryData.loads = [];
+app.listen(PORT, () => {
+    console.log(`Web server running on port ${PORT}`);
+    if (process.env.RAILWAY_PUBLIC_DOMAIN) {
+        webAppUrl = `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`;
+        console.log(`\n✅ RAILWAY WEBAPP TAYYOR! Manzil: ${webAppUrl}\n`);
+        bot.telegram.setChatMenuButton({
+            menu_button: { type: 'web_app', text: '🍽 Menyu', web_app: { url: webAppUrl } }
+        }).then(() => {
+            console.log("✅ Menu button muvaffaqiyatli yangilandi!");
+        }).catch(err => console.log("❌ Menu button yangilashda xato:", err.message));
     } else {
-        await pool.query('INSERT INTO app_state (id, data) VALUES (1, $1)', [memoryData]);
+        startTunnel();
     }
-}
+});
 
-// Baza bilan ishlash funksiyalari
-function readData() {
-    return memoryData;
-}
-
-function writeData(data) {
-    memoryData = data;
-    if (pool) {
-        pool.query('UPDATE app_state SET data = $1 WHERE id = 1', [memoryData]).catch(err => console.error("DB yozishda xato:", err));
-    } else {
-        const tmpFile = dataFile + '.tmp';
-        fs.writeFileSync(tmpFile, JSON.stringify(data, null, 2));
-        fs.renameSync(tmpFile, dataFile);
-    }
-}
-
-function addUser(userId) {
-    const data = readData();
-    if (!data.users.includes(userId)) {
-        data.users.push(userId);
-        writeData(data);
-    }
-}
-
-function addOrder(order) {
-    const data = readData();
-    data.orders += 1;
-    data.loads.push(order);
-    writeData(data);
-}
-
-// --- Joylashuv ma'lumotlari strukturalangan ---
-const locationsData = {
-    "O'zbekiston": [
-        "Toshkent shahar",
-        "Toshkent viloyati",
-        "Qoraqalpog'iston",
-        "Samarqand",
-        "Andijon",
-        "Buxoro",
-        "Farg'ona",
-        "Jizzax",
-        "Xorazm",
-        "Namangan",
-        "Navoiy",
-        "Qashqadaryo",
-        "Surxondaryo",
-        "Sirdaryo"
-    ],
-    "Rossiya": [
-        "Moskva", "Sankt-Peterburg", "Moskva viloyati", "Leningrad viloyati", 
-        "Tatariston Respublikasi", "Boshqirdiston Respublikasi", "Krasnodar oʻlkasi", 
-        "Rostov viloyati", "Sverdlovsk viloyati", "Novosibirsk viloyati", 
-        "Samara viloyati", "Chelyabinsk viloyati"
-    ],
-    "Qozog'iston": [
-        "Astana", "Olmaota", "Olmaota viloyati", "Turkiston viloyati", 
-        "Chimkent shahri", "Qaragʻanda viloyati", "Aqtobe viloyati", 
-        "Atyrau viloyati", "Mangʻistau viloyati", "Sharqiy Qozogʻiston viloyati"
-    ],
-    "Turkmaniston": [
-        "Ashxobod", "Ahal viloyati", "Balkan viloyati", 
-        "Dashoguz viloyati", "Lebap viloyati", "Mary viloyati"
-    ],
-    "Qirg'iziston": [
-        "Bishkek", "Oʻsh", "Chuy viloyati", "Oʻsh viloyati", 
-        "Jalolobod viloyati", "Issiqkoʻl viloyati", "Norin viloyati", "Talas viloyati"
-    ],
-    "Tojikiston": [
-        "Dushanbe", "Sugʻd viloyati", "Xatlon viloyati"
-    ],
-    "Xitoy": ["Pekin", "Shanxay", "Guanchjou", "Urumchi"]
-};
-
-// Joylashuv tugmalarini yaratish yordamchi funksiyalari
-function getCountryKeyboard(prefix) {
-    const countries = Object.keys(locationsData);
-    const buttons = [];
-    for (let i = 0; i < countries.length; i += 2) {
-        const row = [];
-        row.push(Markup.button.callback(countries[i], `${prefix}_c_${countries[i]}`));
-        if (countries[i+1]) {
-            row.push(Markup.button.callback(countries[i+1], `${prefix}_c_${countries[i+1]}`));
-        }
-        buttons.push(row);
-    }
-    return Markup.inlineKeyboard(buttons);
-}
-
-function getRegionKeyboard(prefix, country) {
-    const regions = locationsData[country] || [];
-    const buttons = [];
-    for (let i = 0; i < regions.length; i += 2) {
-        const row = [];
-        row.push(Markup.button.callback(regions[i], `${prefix}_r_${country}_${regions[i]}`));
-        if (regions[i+1]) {
-            row.push(Markup.button.callback(regions[i+1], `${prefix}_r_${country}_${regions[i+1]}`));
-        }
-        buttons.push(row);
-    }
-    buttons.push([Markup.button.callback("⬅️ Ortga", `${prefix}_back_country`)]);
-    return Markup.inlineKeyboard(buttons);
-}
-
-// Xavfsizlik: HTML belgilarni tozalash (XSS himoya)
-function escapeHTML(text) {
-    if (!text) return '';
-    return text.toString()
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
-}
-
-// Yordamchi funksiya: yuk ma'lumotini chiroyli formatlash
-function formatLoadText(order, title) {
-    const phone = (order.telefon || '').startsWith('+') ? order.telefon : '+' + order.telefon;
-    return `
-${title}
-
-📍 Qayerdan: ${escapeHTML(order.qayerdan)}
-🏁 Qayerga: ${escapeHTML(order.qayerga)}
-🚛 Transport turi: ${escapeHTML(order.mashina_turi)}
-📦 Yuk turi: ${escapeHTML(order.yuk_turi)}
-⚖️ Og'irligi va hajmi: ${escapeHTML(order.hajm_ogirlik)}
-💰 Narx: ${escapeHTML(order.narx)}
-💳 To'lov turi: ${escapeHTML(order.tolov_turi)}
-📞 Aloqa: <a href="tel:${escapeHTML(phone)}">${escapeHTML(phone)}</a>
-    `;
-}
-
-// ----- SCENE (SO'ROVNOMA QADAMLARI) -----
-const orderWizard = new Scenes.WizardScene(
-    'ORDER_WIZARD',
-    
-    // Qadam 0: Yuk turini so'rash
-    async (ctx) => {
-        ctx.wizard.state.order = {};
-        await ctx.reply("1️⃣ Iltimos, yukingiz turini yozing (masalan: Qurilish mollari, Mebel):", Markup.removeKeyboard());
-        return ctx.wizard.next(); // cursor -> 1
+// --- ADMIN SCENES ---
+const addMenuWizard = new Scenes.WizardScene(
+    'ADD_MENU_WIZARD',
+    (ctx) => {
+        ctx.wizard.state.product = {};
+        ctx.reply("📸 Yangi taom rasmini yuboring (Bekor qilish uchun /cancel):", Markup.removeKeyboard());
+        return ctx.wizard.next();
     },
-
-    // Qadam 1: Yuk turini qabul qilish va Qayerdan so'rash
-    async (ctx) => {
-        if (!ctx.message || !ctx.message.text) {
-            await ctx.reply("Iltimos, yozma ravishda yuk turini kiriting.");
-            return;
-        }
-        ctx.wizard.state.order.yuk_turi = ctx.message.text;
-        await ctx.reply("2️⃣ Qayerdan yuklanadi? Davlatni tanlang:", getCountryKeyboard('from'));
-        return ctx.wizard.next(); // cursor -> 2
-    },
-
-    // Qadam 2: Qayerdan kutish (faqat callback orqali o'tiladi)
-    async (ctx) => {
-        if (ctx.message) {
-            await ctx.reply("⚠️ Iltimos, faqat tugmalardan foydalaning!");
-        }
-        return;
-    },
-
-    // Qadam 3: Qayerga kutish (faqat callback orqali o'tiladi)
-    async (ctx) => {
-        if (ctx.message) {
-            await ctx.reply("⚠️ Iltimos, faqat tugmalardan foydalaning!");
-        }
-        return;
-    },
-
-    // Qadam 4: Hajm va og'irlik kutish
-    async (ctx) => {
-        if (!ctx.message || !ctx.message.text) {
-            await ctx.reply("Iltimos, yozma ravishda og'irlik va hajmni kiriting.");
-            return;
-        }
-        ctx.wizard.state.order.hajm_ogirlik = ctx.message.text;
+    (ctx) => {
+        if (ctx.message && ctx.message.text === '/cancel') return cancelScene(ctx);
+        if (!ctx.message || !ctx.message.photo) return ctx.reply("Iltimos, faqat rasm yuboring!");
         
-        const keyboard = Markup.inlineKeyboard([
-            [Markup.button.callback("Fura", "car_Fura"), Markup.button.callback("Isuzu 5t", "car_Isuzu 5t")],
-            [Markup.button.callback("Isuzu 10t", "car_Isuzu 10t"), Markup.button.callback("Chakman", "car_Chakman")],
-            [Markup.button.callback("Fura Tent", "car_Fura Tent"), Markup.button.callback("Fura Ref", "car_Fura Ref")],
-            [Markup.button.callback("Boshqa", "car_Boshqa")]
-        ]);
-        await ctx.reply("5️⃣ Qanday turdagi mashina kerak?", keyboard);
-        return ctx.wizard.next(); // cursor -> 5
+        ctx.wizard.state.product.image_file_id = ctx.message.photo[ctx.message.photo.length - 1].file_id;
+        ctx.reply("📝 Taom nomini yozing (Masalan: To'y oshi):");
+        return ctx.wizard.next();
     },
-
-    // Qadam 5: Mashina turi kutish (faqat callback orqali)
-    async (ctx) => {
-        if (ctx.message) {
-            await ctx.reply("⚠️ Iltimos, faqat tugmalardan foydalaning!");
-        }
-        return;
-    },
-
-    // Qadam 6: Sana kutish (faqat callback orqali)
-    async (ctx) => {
-        if (ctx.message) {
-            await ctx.reply("⚠️ Iltimos, faqat tugmalardan foydalaning!");
-        }
-        return;
-    },
-
-    // Qadam 7: To'lov turi kutish (faqat callback orqali)
-    async (ctx) => {
-        if (ctx.message) {
-            await ctx.reply("⚠️ Iltimos, faqat tugmalardan foydalaning!");
-        }
-        return;
-    },
-
-    // Qadam 8: Narx kutish (callback yoki text)
-    async (ctx) => {
-        if (ctx.callbackQuery && ctx.callbackQuery.data.startsWith('price_')) {
-             ctx.wizard.state.order.narx = "Kelishiladi";
-             await ctx.answerCbQuery();
-        } else if (ctx.message && ctx.message.text) {
-             ctx.wizard.state.order.narx = ctx.message.text;
-        } else {
-             await ctx.reply("Iltimos faqat to'g'ri tugmani bosing yoki yozing.");
-             return;
-        }
-
-        const contactKeyboard = Markup.keyboard([
-            [Markup.button.contactRequest("📞 Telefon raqamni jo'natish")]
-        ]).resize().oneTime();
-
-        await ctx.reply("✅ Va nihoyat, telefon raqamingizni yuboring (faqat tugma orqali):", contactKeyboard);
-        return ctx.wizard.next(); // cursor -> 9
-    },
-
-    // Qadam 9: Telefon raqamni saqlash va adminga jo'natish
-    async (ctx) => {
-        if (!ctx.message || !ctx.message.contact) {
-            await ctx.reply("⚠️ Iltimos, pastdagi '📞 Telefon raqamni jo'natish' tugmasi orqali raqamingizni yuboring, yozib yuborish qabul qilinmaydi!");
-            return;
-        }
-
-        ctx.wizard.state.order.telefon = ctx.message.contact.phone_number;
-        ctx.wizard.state.order.buyurtmachi_id = ctx.from.id;
-        ctx.wizard.state.order.id = Date.now().toString();
-        ctx.wizard.state.order.broadcasts = [];
+    (ctx) => {
+        if (ctx.message && ctx.message.text === '/cancel') return cancelScene(ctx);
+        if (!ctx.message || !ctx.message.text) return ctx.reply("Iltimos, matn yozing!");
         
-        const order = ctx.wizard.state.order;
-
-        // Yukni bazaga qo'shish
-        addOrder(order);
-
-        // Formatlangan matn
-        const loadText = formatLoadText(order, "🔥 DIQQAT YUK !");
-        const inlineKeyboard = Markup.inlineKeyboard([
-            [Markup.button.url("💬 Telegram orqali yozish", `tg://user?id=${ctx.from.id}`)]
-        ]);
-
-        // Barcha haydovchilarga yuborish va admin uchun xabar ID larni saqlash
-        const data = readData();
-        const promises = [];
-
-        // Adminga xabar jo'natish
-        if (ADMIN_CHAT_ID) {
-            promises.push(
-                bot.telegram.sendMessage(ADMIN_CHAT_ID, loadText, { parse_mode: 'HTML', ...inlineKeyboard })
-                    .then(msg => ({ chat_id: ADMIN_CHAT_ID, message_id: msg.message_id }))
-                    .catch(err => null)
-            );
-        }
-
-        // Boshqa foydalanuvchilarga yuborish
-        for (const userId of data.users) {
-            if (userId !== ctx.from.id) {
-                promises.push(
-                    bot.telegram.sendMessage(userId, loadText, { parse_mode: 'HTML', ...inlineKeyboard })
-                        .then(msg => ({ chat_id: userId, message_id: msg.message_id }))
-                        .catch(e => null)
-                );
-            }
-        }
-
-        Promise.all(promises).then(results => {
-            const validBroadcasts = results.filter(r => r !== null);
-            if (validBroadcasts.length > 0) {
-                const currentData = readData();
-                const targetOrder = currentData.loads.find(l => l.id === order.id);
-                if (targetOrder) {
-                    if (!targetOrder.broadcasts) targetOrder.broadcasts = [];
-                    targetOrder.broadcasts.push(...validBroadcasts);
-                    writeData(currentData);
-                }
-            }
-        });
-
-        await ctx.reply("✅ Buyurtmangiz qabul qilindi va barcha haydovchilarga yuborildi. Tez orada siz bilan bog'lanishadi!", Markup.removeKeyboard());
+        ctx.wizard.state.product.name = ctx.message.text;
+        ctx.reply("💰 Narxini yozing (faqat raqam bilan, masalan: 45000):");
+        return ctx.wizard.next();
+    },
+    (ctx) => {
+        if (ctx.message && ctx.message.text === '/cancel') return cancelScene(ctx);
+        if (!ctx.message || !ctx.message.text || isNaN(ctx.message.text)) return ctx.reply("Iltimos, faqat raqam yozing (masalan: 45000):");
         
-        // Bosh menyuga qaytish
-        const menuKeyboard = Markup.keyboard([
-            ['📦 Yuk joylash', '🔍 Yuk topish'],
-            ['❌ Yukni bekor qilish']
-        ]).resize();
-        await ctx.reply("Yana yuk joylash uchun pastdagi tugmani bosing.", menuKeyboard);
+        ctx.wizard.state.product.price = parseInt(ctx.message.text);
+        
+        ctx.reply("📂 Kategoriyani tanlang:", Markup.keyboard([
+            ['Osh', 'Salatlar'],
+            ['Ichimliklar', "Qo'shimcha"]
+        ]).resize().oneTime());
+        return ctx.wizard.next();
+    },
+    (ctx) => {
+        if (ctx.message && ctx.message.text === '/cancel') return cancelScene(ctx);
+        if (!ctx.message || !ctx.message.text) return ctx.reply("Kategoriyani tanlang!");
+        
+        ctx.wizard.state.product.category = ctx.message.text;
+        ctx.reply("ℹ️ Taom haqida qisqacha izoh yozing:", Markup.removeKeyboard());
+        return ctx.wizard.next();
+    },
+    (ctx) => {
+        if (ctx.message && ctx.message.text === '/cancel') return cancelScene(ctx);
+        if (!ctx.message || !ctx.message.text) return ctx.reply("Iltimos, izoh yozing!");
+        
+        ctx.wizard.state.product.desc = ctx.message.text;
+        
+        // DB ga saqlash
+        const newProduct = {
+            id: Date.now().toString(),
+            category: ctx.wizard.state.product.category,
+            name: ctx.wizard.state.product.name,
+            price: ctx.wizard.state.product.price,
+            desc: ctx.wizard.state.product.desc,
+            image_file_id: ctx.wizard.state.product.image_file_id
+        };
+        products.push(newProduct);
+        saveProducts();
+        
+        ctx.reply(`✅ <b>${newProduct.name}</b> muvaffaqiyatli menyuga qo'shildi va WebApp da darhol paydo bo'ldi!`, { parse_mode: 'HTML' });
+        
+        // Admin menyuni qaytarish
+        ctx.reply("Admin menyusi:", Markup.inlineKeyboard([
+            [Markup.button.callback("📜 Menular", "admin_menus"), Markup.button.callback("➕ Yangi menu", "admin_add_menu")]
+        ]));
         
         return ctx.scene.leave();
     }
 );
 
-// Joylashuv Inline tugmalari navigatsiyasi (FROM)
-orderWizard.action(/from_c_(.+)/, async (ctx) => {
-    const country = ctx.match[1];
-    await ctx.editMessageText(`Siz tanladingiz: ${country}\nEndi viloyatni tanlang:`, getRegionKeyboard('from', country));
-});
-orderWizard.action(/from_back_country/, async (ctx) => {
-    await ctx.editMessageText("Qayerdan yuklanadi? Davlatni tanlang:", getCountryKeyboard('from'));
-});
-// Yakuniy FROM tanlovi
-orderWizard.action(/from_r_(.+)_(.+)/, async (ctx) => {
-    if (ctx.wizard.cursor !== 2) return;
-    const country = ctx.match[1];
-    const region = ctx.match[2];
-    ctx.wizard.state.order.qayerdan = `${country}, ${region}`;
-    await ctx.editMessageText(`✅ Saqlandi: ${ctx.wizard.state.order.qayerdan}`);
-    
-    // Keyingi savol (TO)
-    await ctx.reply("3️⃣ Qayerga yetkazilishi kerak? Davlatni tanlang:", getCountryKeyboard('to'));
-    ctx.wizard.next(); // cursor -> 3
-});
+function cancelScene(ctx) {
+    ctx.reply("❌ Jarayon bekor qilindi.", Markup.inlineKeyboard([
+        [Markup.button.callback("📜 Menular", "admin_menus"), Markup.button.callback("➕ Yangi menu", "admin_add_menu")]
+    ]));
+    return ctx.scene.leave();
+}
 
-// Joylashuv Inline tugmalari navigatsiyasi (TO)
-orderWizard.action(/to_c_(.+)/, async (ctx) => {
-    const country = ctx.match[1];
-    await ctx.editMessageText(`Siz tanladingiz: ${country}\nEndi viloyatni tanlang:`, getRegionKeyboard('to', country));
-});
-orderWizard.action(/to_back_country/, async (ctx) => {
-    await ctx.editMessageText("Qayerga yetkazilishi kerak? Davlatni tanlang:", getCountryKeyboard('to'));
-});
-// Yakuniy TO tanlovi
-orderWizard.action(/to_r_(.+)_(.+)/, async (ctx) => {
-    if (ctx.wizard.cursor !== 3) return;
-    const country = ctx.match[1];
-    const region = ctx.match[2];
-    ctx.wizard.state.order.qayerga = `${country}, ${region}`;
-    await ctx.editMessageText(`✅ Saqlandi: ${ctx.wizard.state.order.qayerga}`);
-    
-    // Keyingi savol
-    await ctx.reply("4️⃣ Yukning taxminiy og'irligi va hajmini yozing (masalan: 20 tonna, 80 kub):");
-    ctx.wizard.next(); // cursor -> 4
-});
-
-// Mashina turi tanlovi
-orderWizard.action(/car_(.+)/, async (ctx) => {
-    if (ctx.wizard.cursor !== 5) return;
-    ctx.wizard.state.order.mashina_turi = ctx.match[1];
-    await ctx.editMessageText(`✅ Mashina turi tanlandi: ${ctx.match[1]}`);
-    
-    const keyboard = Markup.inlineKeyboard([
-        [Markup.button.callback("Bugun", "date_Bugun"), Markup.button.callback("Ertaga", "date_Ertaga")],
-        [Markup.button.callback("Indinga", "date_Indinga"), Markup.button.callback("Yuklashga tayyor", "date_Tayyor")]
-    ]);
-    await ctx.reply("6️⃣ Yuklanish sanasini tanlang:", keyboard);
-    ctx.wizard.next(); // cursor -> 6
-});
-
-// Sana tanlovi
-orderWizard.action(/date_(.+)/, async (ctx) => {
-    if (ctx.wizard.cursor !== 6) return;
-    ctx.wizard.state.order.sana = ctx.match[1];
-    await ctx.editMessageText(`✅ Sana tanlandi: ${ctx.match[1]}`);
-    
-    const keyboard = Markup.inlineKeyboard([
-        [Markup.button.callback("Naqd", "pay_Naqd"), Markup.button.callback("Kartaga", "pay_Kartaga")]
-    ]);
-    await ctx.reply("7️⃣ To'lov turini tanlang:", keyboard);
-    ctx.wizard.next(); // cursor -> 7
-});
-
-// To'lov turi tanlovi
-orderWizard.action(/pay_(.+)/, async (ctx) => {
-    if (ctx.wizard.cursor !== 7) return;
-    ctx.wizard.state.order.tolov_turi = ctx.match[1];
-    await ctx.editMessageText(`✅ To'lov turi tanlandi: ${ctx.match[1]}`);
-    
-    const keyboard = Markup.inlineKeyboard([
-        [Markup.button.callback("Narx kelishiladi", "price_Kelishiladi")]
-    ]);
-    await ctx.reply("8️⃣ Necha pul berishini yozing yoki tugmani bosing:", keyboard);
-    ctx.wizard.next(); // cursor -> 8
-});
-
-
-// ----- SCENE (YUK QIDIRISH) -----
-const searchWizard = new Scenes.WizardScene(
-    'SEARCH_WIZARD',
-    async (ctx) => {
-        ctx.wizard.state.search = {};
-        await ctx.reply("1️⃣ Qayerdan yuk olib ketmoqchisiz? Davlatni tanlang:", getCountryKeyboard('sfrom'));
+// Edit Price Scene
+const editPriceWizard = new Scenes.WizardScene(
+    'EDIT_PRICE_WIZARD',
+    (ctx) => {
+        ctx.reply("Yangi narxni yozing (faqat raqam):");
         return ctx.wizard.next();
     },
-    async (ctx) => {
-        if (ctx.message) await ctx.reply("⚠️ Iltimos, faqat tugmalardan foydalaning!");
-        return;
-    },
-    async (ctx) => {
-        if (ctx.message) await ctx.reply("⚠️ Iltimos, faqat tugmalardan foydalaning!");
-        return;
+    (ctx) => {
+        if (!ctx.message || !ctx.message.text || isNaN(ctx.message.text)) return ctx.reply("Faqat raqam yozing!");
+        const newPrice = parseInt(ctx.message.text);
+        const productId = ctx.scene.state.productId;
+        
+        const index = products.findIndex(p => p.id === productId);
+        if (index !== -1) {
+            products[index].price = newPrice;
+            saveProducts();
+            ctx.reply(`✅ Narx yangilandi: ${newPrice} UZS`);
+        } else {
+            ctx.reply("Mahsulot topilmadi.");
+        }
+        return ctx.scene.leave();
     }
 );
 
-// Search FROM
-searchWizard.action(/sfrom_c_(.+)/, async (ctx) => {
-    const country = ctx.match[1];
-    await ctx.editMessageText(`Siz tanladingiz: ${country}\nEndi viloyatni tanlang:`, getRegionKeyboard('sfrom', country));
-});
-searchWizard.action(/sfrom_back_country/, async (ctx) => {
-    await ctx.editMessageText("Qayerdan yuk olib ketmoqchisiz? Davlatni tanlang:", getCountryKeyboard('sfrom'));
-});
-searchWizard.action(/sfrom_r_(.+)_(.+)/, async (ctx) => {
-    if (ctx.wizard.cursor !== 1) return;
-    const country = ctx.match[1];
-    const region = ctx.match[2];
-    ctx.wizard.state.search.qayerdan = `${country}, ${region}`;
-    await ctx.editMessageText(`✅ Saqlandi: ${ctx.wizard.state.search.qayerdan}`);
-    
-    await ctx.reply("2️⃣ Qayerga bormoqchisiz? Davlatni tanlang:", getCountryKeyboard('sto'));
-    ctx.wizard.next();
-});
-
-// Search TO
-searchWizard.action(/sto_c_(.+)/, async (ctx) => {
-    const country = ctx.match[1];
-    await ctx.editMessageText(`Siz tanladingiz: ${country}\nEndi viloyatni tanlang:`, getRegionKeyboard('sto', country));
-});
-searchWizard.action(/sto_back_country/, async (ctx) => {
-    await ctx.editMessageText("Qayerga bormoqchisiz? Davlatni tanlang:", getCountryKeyboard('sto'));
-});
-searchWizard.action(/sto_r_(.+)_(.+)/, async (ctx) => {
-    if (ctx.wizard.cursor !== 2) return;
-    const country = ctx.match[1];
-    const region = ctx.match[2];
-    ctx.wizard.state.search.qayerga = `${country}, ${region}`;
-    await ctx.editMessageText(`✅ Saqlandi: ${ctx.wizard.state.search.qayerga}`);
-    
-    // Qidirish logikasi
-    const { qayerdan, qayerga } = ctx.wizard.state.search;
-    const data = readData();
-    const loads = data.loads || [];
-    
-    const matchingLoads = loads.filter(l => l.qayerdan === qayerdan && l.qayerga === qayerga);
-    
-    const resultsToTrack = [];
-    
-    if (matchingLoads.length > 0) {
-        await ctx.reply(`✅ Aynan shu yo'nalishda ${matchingLoads.length} ta yuk topildi:`);
-        for (const l of matchingLoads.slice(-5)) { // Oxirgi 5 tasini ko'rsatamiz
-            const text = formatLoadText(l, "🟢 FAOL YUK");
-            const kb = Markup.inlineKeyboard([[Markup.button.url("💬 Telegram orqali yozish", `tg://user?id=${l.buyurtmachi_id}`)]]);
-            const msg = await ctx.reply(text, { parse_mode: 'HTML', ...kb });
-            resultsToTrack.push({ loadId: l.id, chatId: ctx.from.id, msgId: msg.message_id });
-        }
-    } else {
-        await ctx.reply(`Afsuski, aynan siz qidirgan ${qayerdan} -> ${qayerga} yo'nalishida hozircha yuk topilmadi.\n\nBoshqa yo'nalishlardagi so'nggi yuklar:`);
-        const recentLoads = loads.slice(-5);
-        if (recentLoads.length === 0) {
-            await ctx.reply("Hozircha tizimda hech qanday yuk yo'q.");
-        } else {
-            for (const l of recentLoads) {
-                const text = formatLoadText(l, "🟢 FAOL YUK");
-                const kb = Markup.inlineKeyboard([[Markup.button.url("💬 Telegram orqali yozish", `tg://user?id=${l.buyurtmachi_id}`)]]);
-                const msg = await ctx.reply(text, { parse_mode: 'HTML', ...kb });
-                resultsToTrack.push({ loadId: l.id, chatId: ctx.from.id, msgId: msg.message_id });
-            }
-        }
-    }
-    
-    if (resultsToTrack.length > 0) {
-        const currentData = readData();
-        for (const res of resultsToTrack) {
-            const targetOrder = currentData.loads.find(l => l.id === res.loadId);
-            if (targetOrder) {
-                if (!targetOrder.broadcasts) targetOrder.broadcasts = [];
-                targetOrder.broadcasts.push({ chat_id: res.chatId, message_id: res.msgId });
-            }
-        }
-        writeData(currentData);
-    }
-    
-    const menuKeyboard = Markup.keyboard([
-        ['📦 Yuk joylash', '🔍 Yuk topish'],
-        ['❌ Yukni bekor qilish']
-    ]).resize();
-    await ctx.reply("Bosh menyu:", menuKeyboard);
-    return ctx.scene.leave();
-});
-
-const stage = new Scenes.Stage([orderWizard, searchWizard]);
+const stage = new Scenes.Stage([addMenuWizard, editPriceWizard]);
 bot.use(session());
-// /start komandasi sahnadan oldin ushlanadi, bu so'rovnomalarni to'xtatadi
-bot.start((ctx) => {
-    ctx.session = null; // Sahnadan va keshdan chiqarib yuborish
-    addUser(ctx.from.id);
-    const userName = ctx.from.first_name || 'Foydalanuvchi';
-    const menuKeyboard = Markup.keyboard([
-        ['📦 Yuk joylash', '🔍 Yuk topish'],
-        ['❌ Yukni bekor qilish']
-    ]).resize();
-
-    ctx.reply(`Salom, ${userName}! Logistika botimizga xush kelibsiz.\nQuyidagi menyudan kerakli bo'limni tanlang:`, menuKeyboard);
-});
-
 bot.use(stage.middleware());
 
-// /statistika komandasi
-bot.command('statistika', (ctx) => {
-    if (ctx.from.id.toString() !== ADMIN_CHAT_ID) {
-        return ctx.reply("⛔ Kechirasiz, siz admin emassiz.");
-    }
+// --- ADMIN COMMANDS ---
+bot.command('admin', (ctx) => {
+    if (ctx.from.id.toString() !== process.env.ADMIN_ID) return ctx.reply("Siz admin emassiz!");
     
-    const data = readData();
-    const text = `
-📊 <b>Bot Statistikasi</b>
-
-👥 <b>Jami foydalanuvchilar:</b> ${data.users.length} ta
-📦 <b>Jami buyurtmalar:</b> ${data.orders} ta
-    `;
-    ctx.reply(text, { parse_mode: 'HTML' });
-});
-
-// Yuk joylash tugmasi
-bot.hears('📦 Yuk joylash', (ctx) => {
-    ctx.scene.enter('ORDER_WIZARD');
-});
-
-// Yuk topish tugmasi
-bot.hears('🔍 Yuk topish', (ctx) => {
-    ctx.scene.enter('SEARCH_WIZARD');
-});
-
-// Global Xatoliklarni ushlash
-bot.catch((err, ctx) => {
-    console.error(`Xatolik yuz berdi ${ctx.updateType}`, err);
-});
-
-// Yukni bekor qilish tugmasi
-bot.hears('❌ Yukni bekor qilish', async (ctx) => {
-    const data = readData();
-    const myLoads = data.loads.filter(l => l.buyurtmachi_id === ctx.from.id);
-    if (myLoads.length === 0) {
-        return ctx.reply("Sizda hozircha faol yuklar yo'q.");
-    }
-    await ctx.reply("Sizning faol yuklaringiz. O'chirish uchun '❌ Tugatish' ni bosing:");
-    for (const load of myLoads) {
-        const text = formatLoadText(load, "🟢 FAOL YUK");
-        const keyboard = Markup.inlineKeyboard([
-            [Markup.button.callback("❌ Tugatish", `cancel_load_${load.id}`)]
-        ]);
-        await ctx.reply(text, { parse_mode: 'HTML', ...keyboard });
-    }
-});
-
-bot.action(/cancel_load_(.+)/, async (ctx) => {
-    const loadId = ctx.match[1];
-    const data = readData();
-    const loadIndex = data.loads.findIndex(l => l.id === loadId);
-    
-    if (loadIndex === -1) {
-        return ctx.answerCbQuery("Bu yuk allaqachon bekor qilingan yoki topilmadi.", { show_alert: true });
-    }
-    
-    const load = data.loads[loadIndex];
-    if (load.buyurtmachi_id !== ctx.from.id) {
-        return ctx.answerCbQuery("Siz bu yukni bekor qila olmaysiz!", { show_alert: true });
-    }
-    
-    // Habarlarni hamma chatlardan o'chirish
-    if (load.broadcasts) {
-        for (const b of load.broadcasts) {
-            try {
-                await bot.telegram.deleteMessage(b.chat_id, b.message_id);
-            } catch(e) {}
+    ctx.reply("🛠 <b>Admin Paneliga xush kelibsiz!</b>\nQuyidagi tugmalardan foydalaning:", {
+        parse_mode: 'HTML',
+        reply_markup: {
+            inline_keyboard: [
+                [{ text: "📜 Menular (Mavjudlari)", callback_data: "admin_menus" }],
+                [{ text: "➕ Yangi menu qo'shish", callback_data: "admin_add_menu" }]
+            ]
         }
-    }
-    
-    // Baza dan o'chirish
-    data.loads.splice(loadIndex, 1);
-    writeData(data);
-    
-    await ctx.editMessageText("✅ Bu yuk muvaffaqiyatli bekor qilindi va barcha chatlardan o'chirildi.");
-    ctx.answerCbQuery("Yuk o'chirildi.");
+    });
 });
-// Botni ishga tushirish
-initDB().then(() => {
-    bot.launch().then(async () => {
-        console.log("Bot muvaffaqiyatli ishga tushdi!");
+
+
+bot.action('admin_add_menu', (ctx) => {
+    ctx.answerCbQuery();
+    ctx.scene.enter('ADD_MENU_WIZARD');
+});
+
+bot.action('admin_menus', async (ctx) => {
+    ctx.answerCbQuery();
+    if (products.length === 0) return ctx.reply("Hozircha menuda hech qanday taom yo'q.");
+    
+    ctx.reply("<b>Mavjud taomlar:</b>", { parse_mode: 'HTML' });
+    
+    for (const p of products) {
+        const text = `🍲 <b>${p.name}</b>\n📂 Kategoriya: ${p.category}\n💰 Narxi: ${p.price} UZS\n📝 Izoh: ${p.desc || ''}`;
+        await ctx.replyWithPhoto(p.image_file_id, {
+            caption: text,
+            parse_mode: 'HTML',
+            reply_markup: {
+                inline_keyboard: [
+                    [
+                        { text: "✏️ Tahrirlash (Narxni)", callback_data: `edit_${p.id}` },
+                        { text: "❌ Tugatish", callback_data: `delete_${p.id}` }
+                    ]
+                ]
+            }
+        });
+    }
+});
+
+bot.action(/delete_(.+)/, (ctx) => {
+    const id = ctx.match[1];
+    products = products.filter(p => p.id !== id);
+    saveProducts();
+    ctx.deleteMessage().catch(()=>{});
+    ctx.answerCbQuery("✅ Taom o'chirildi va WebApp'dan olib tashlandi!");
+});
+
+bot.action(/edit_(.+)/, (ctx) => {
+    ctx.answerCbQuery();
+    ctx.scene.enter('EDIT_PRICE_WIZARD', { productId: ctx.match[1] });
+});
+
+// --- BOT COMMANDS ---
+bot.start((ctx) => {
+    if (userPhones[ctx.from.id]) {
+        const kb = webAppUrl ? 
+            Markup.keyboard([[Markup.button.webApp("🍽 Menyuni ochish", webAppUrl)]]).resize() :
+            Markup.keyboard([["⏳ Tizim ulanmoqda, kuting..."]]).resize();
+        return ctx.reply(`Assalomu alaykum <a href="tg://user?id=${ctx.from.id}">${ctx.from.first_name}</a>!\n\nXush kelibsiz! Buyurtma berish uchun menyuni oching:`, { parse_mode: 'HTML', ...kb });
+    }
+
+    ctx.reply(`Assalomu alaykum <a href="tg://user?id=${ctx.from.id}">${ctx.from.first_name}</a>!\n\nIltimos, botdan to'liq foydalanish va buyurtma berish uchun telefon raqamingizni yuboring. (Pastdagi tugmani bosing)`, { 
+        parse_mode: 'HTML', 
+        reply_markup: {
+            keyboard: [[{ text: "📱 Raqamni yuborish", request_contact: true }]],
+            resize_keyboard: true,
+            one_time_keyboard: true
+        }
+    });
+});
+
+bot.on('contact', (ctx) => {
+    const contact = ctx.message.contact;
+    userPhones[ctx.from.id] = contact.phone_number;
+    saveUsers();
+    
+    const kb = webAppUrl ? 
+        Markup.keyboard([[Markup.button.webApp("🍽 Menyuni ochish", webAppUrl)]]).resize() :
+        Markup.keyboard([["⏳ Tizim ulanmoqda, kuting..."]]).resize();
+
+    ctx.reply("✅ Raqamingiz saqlandi! Endi menyuni ochib buyurtma berishingiz mumkin:", kb);
+});
+
+bot.hears("⏳ Tizim ulanmoqda, kuting...", (ctx) => {
+    if (webAppUrl) {
+        ctx.reply("Tizim ulandi! Menyuni ochishingiz mumkin:", Markup.keyboard([[Markup.button.webApp("🍽 Menyuni ochish", webAppUrl)]]).resize());
+    } else {
+        ctx.reply("Hali ulanmadi, iltimos biroz kuting...");
+    }
+});
+
+bot.on('web_app_data', (ctx) => {
     try {
-        // Hamma uchun komandalar
-        await bot.telegram.setMyCommands([
-            { command: 'start', description: 'Botni ishga tushirish' }
-        ]);
+        const data = JSON.parse(ctx.message.web_app_data.data);
         
-        // Faqat admin uchun komandalar
-        if (ADMIN_CHAT_ID) {
-            await bot.telegram.setMyCommands([
-                { command: 'start', description: 'Botni ishga tushirish' },
-                { command: 'statistika', description: 'Bot statistikasi' }
-            ], { scope: { type: 'chat', chat_id: ADMIN_CHAT_ID } });
+        if (data.type === 'order') {
+            const adminId = process.env.ADMIN_ID;
+            const phone = userPhones[ctx.from.id] || "Noma'lum";
+            const formattedPhone = phone.startsWith('+') ? phone : '+' + phone;
+
+            const orderTypeStr = data.orderType === 'delivery' ? "🚚 Yetkazib berish" : "🏃 O'zim olib ketaman";
+            
+            let message = `🛒 <b>YANGI BUYURTMA!</b>\n\n`;
+            message += `👤 <b>Xaridor:</b> <a href="tg://user?id=${ctx.from.id}">${ctx.from.first_name}</a>\n`;
+            message += `📞 <b>Raqami:</b> <a href="tel:${formattedPhone}">${formattedPhone}</a>\n`;
+            message += `📦 <b>Tur:</b> ${orderTypeStr}\n`;
+            
+            if (data.orderType === 'delivery') {
+                message += `📍 <b>Manzil:</b> ${data.address || "Belgilanmagan"}\n`;
+                if (data.addressDetails) {
+                    const d = data.addressDetails;
+                    if (d.title) message += `🏷 <b>Sarlavha:</b> ${d.title}\n`;
+                    if (d.house || d.apartment) message += `🏠 <b>Uy/Xonadon:</b> ${d.house || '-'}/${d.apartment || '-'}\n`;
+                    if (d.floor || d.entrance) message += `🏢 <b>Qavat/Kirish:</b> ${d.floor || '-'}/${d.entrance || '-'}\n`;
+                    if (d.comment) message += `💬 <b>Izoh:</b> ${d.comment}\n`;
+                }
+                if (data.location) {
+                    const mapLink = `https://www.google.com/maps?q=${data.location[0]},${data.location[1]}`;
+                    message += `🗺 <b>Lokatsiya:</b> <a href="${mapLink}">Xaritada ko'rish</a>\n`;
+                }
+            }
+            
+            message += `\n📋 <b>Mahsulotlar:</b>\n`;
+            data.items.forEach(item => {
+                message += `▪️ ${item.name} x ${item.quantity} = ${(item.price * item.quantity).toLocaleString()} UZS\n`;
+            });
+            
+            message += `\n💰 <b>Jami summa:</b> ${data.total.toLocaleString()} UZS`;
+            
+            // Save to DB
+            const newOrder = {
+                id: Date.now().toString(),
+                user_id: ctx.from.id,
+                user_name: ctx.from.first_name,
+                items: data.items,
+                total: data.total,
+                date: new Date().toISOString(),
+                status: 'pending'
+            };
+            orders.unshift(newOrder);
+            saveOrders();
+
+            ctx.reply("✅ Buyurtmangiz qabul qilindi! Tez orada siz bilan bog'lanamiz.");
+            
+            if (adminId) {
+                const inlineKeyboard = [[{ text: "💬 Telegramdan yozish", url: `tg://user?id=${ctx.from.id}` }]];
+                
+                if (data.orderType === 'delivery' && data.location) {
+                    inlineKeyboard.push([{ text: "📍 Xaritada ochish", url: `https://www.google.com/maps?q=${data.location[0]},${data.location[1]}` }]);
+                }
+
+                bot.telegram.sendMessage(adminId, message, { 
+                    parse_mode: 'HTML',
+                    reply_markup: {
+                        inline_keyboard: inlineKeyboard
+                    }
+                }).catch(err => {
+                    console.log("Adminga xabar yuborishda xatolik:", err.message);
+                });
+            }
         }
-    } catch (err) {
-        console.error("Komandalarni o'rnatishda xatolik:", err);
+    } catch (e) {
+        console.error("WebApp data parse error:", e);
     }
 });
+
+console.log("Bot launch qilinmoqda...");
+bot.launch().then(() => {
+    console.log("🤖 Telegram Bot ishga tushdi!");
+}).catch(err => {
+    console.error("Bot ishga tushishida xatolik:", err);
 });
 
-// Graceful stop
-process.once('SIGINT', () => bot.stop('SIGINT'));
-process.once('SIGTERM', () => bot.stop('SIGTERM'));
+process.once('SIGINT', () => {
+    console.log("SIGINT qabul qilindi, bot to'xtatilmoqda...");
+    bot.stop('SIGINT');
+});
+process.once('SIGTERM', () => {
+    console.log("SIGTERM qabul qilindi, bot to'xtatilmoqda...");
+    bot.stop('SIGTERM');
+});
