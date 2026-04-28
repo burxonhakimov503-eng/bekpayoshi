@@ -1,0 +1,162 @@
+[
+  {
+    "id": "1777099089901",
+    "category": "Osh",
+    "name": "Pay osh",
+    "price": 45000,
+    "desc": "Bek pay oshi",
+    "image_file_id": "AgACAgIAAxkBAAMuaexhMS5rCifpud33Cz36PWxF_2cAAsMQaxs6iWlLVGTh-NdnJYkBAAMCAAN5AAM7BA"
+  },
+  {
+    "id": "1777102945515",
+    "category": "Ichimliklar",
+    "name": "Coca-Cola ichimligi 1.5 L",
+    "price": 18000,
+    "desc": ".",
+    "image_file_id": "AgACAgIAAxkBAANmaexwJzqOt4e7F8qEq8s7PIZ4JXEAAv4Qaxs6iWlLwfo_LvlfJUEBAAMCAAN5AAM7BA"
+  },
+  {
+    "id": "1777102987301",
+    "category": "Ichimliklar",
+    "name": "Coca-Cola ichimligi 2.5L",
+    "price": 25000,
+    "desc": ".",
+    "image_file_id": "AgACAgIAAxkBAANyaexwdIJQPBsOCj3MGUZtnd3mO-EAAv8Qaxs6iWlLihxkqYaUP_UBAAMCAAN5AAM7BA"
+  },
+  {
+    "id": "1777103038903",
+    "category": "Ichimliklar",
+    "name": "Coca-Cola ichimligi 2L",
+    "price": 20000,
+    "desc": ".",
+    "image_file_id": "AgACAgIAAxkBAAN-aexwl6BwR-gdSY-LhHtNYo77P0wAAxFrGzqJaUvBl7hFVvTv3QEAAwIAA3kAAzsE"
+  },
+  {
+    "id": "1777103074850",
+    "category": "Ichimliklar",
+    "name": "Coca-Cola ichimligi 1L",
+    "price": 15000,
+    "desc": ".",
+    "image_file_id": "AgACAgIAAxkBAAOKaexwz5mmDrGIX3ty2A8sJg-3xRwAAgERaxs6iWlLhNgF_In0Ig0BAAMCAAN5AAM7BA"
+  },
+  {
+    "id": "1777103123436",
+    "category": "Ichimliklar",
+    "name": "Fanta Apelsin 1.5L",
+    "price": 18000,
+    "desc": ".",
+    "image_file_id": "AgACAgIAAxkBAAOWaexw8Um-wfsFbg40bymXQTjRWRkAAgIRaxs6iWlL92hme0aamrIBAAMCAAN5AAM7BA"
+  },
+  {
+    "id": "1777103154024",
+    "category": "Ichimliklar",
+    "name": "Fanta Apelsin 1L",
+    "price": 15000,
+    "desc": ".",
+    "image_file_id": "AgACAgIAAxkBAAOiaexxIlXHJSh0jmeIuyoh4vsjP58AAgQRaxs6iWlLPRvouuVP_rIBAAMCAAN5AAM7BA"
+  },
+  {
+    "id": "1777103189917",
+    "category": "Ichimliklar",
+    "name": "Fanta Apelsin 2L",
+    "price": 20000,
+    "desc": ".",
+    "image_file_id": "AgACAgIAAxkBAAOuaexxP4IWUisI8Cio_ScEdcprb30AAgURaxs6iWlLMDR61fUalHkBAAMCAAN5AAM7BA"
+  },
+  {
+    "id": "1777103217909",
+    "category": "Ichimliklar",
+    "name": "Fanta Apelsin 2.5L",
+    "price": 25000,
+    "desc": ".",
+    "image_file_id": "AgACAgIAAxkBAAO6aexxYmcnM0oqUfwgi7AuialKFfIAAgYRaxs6iWlLJLz0fFcvfr4BAAMCAAN5AAM7BA"
+  },
+  {
+    "id": "1777103305134",
+    "category": "Ichimliklar",
+    "name": "Sprite 1L",
+    "price": 15000,
+    "desc": ".",
+    "image_file_id": "AgACAgIAAxkBAAPUaexxtNZBjfYRog-tqoD58Fam4S0AAgwRaxs6iWlL0bmxG3JbZWsBAAMCAAN5AAM7BA"
+  },
+  {
+    "id": "1777103338536",
+    "category": "Ichimliklar",
+    "name": "Sprite 1.5L",
+    "price": 18000,
+    "desc": ".",
+    "image_file_id": "AgACAgIAAxkBAAPgaexx1v3682OLvLKI6Wk9nSii6MMAAg4Raxs6iWlLwk9eKpNn58kBAAMCAAN5AAM7BA"
+  },
+  {
+    "id": "1777295582867",
+    "name": "Choyxona osh ",
+    "price": 55000,
+    "category": "Osh",
+    "desc": "",
+    "image_file_id": null,
+    "image_url": "/uploads/1777295579906.jpg"
+  },
+  {
+    "id": "1777295619474",
+    "name": "Achchiq osh",
+    "price": 60000,
+    "category": "Osh",
+    "desc": "",
+    "image_file_id": null,
+    "image_url": "/uploads/1777295618003.jpg"
+  },
+  {
+    "id": "1777295662192",
+    "name": "Ulfatlar osh",
+    "price": 80000,
+    "category": "Osh",
+    "desc": "",
+    "image_file_id": null,
+    "image_url": "/uploads/1777295661001.jpg"
+  },
+  {
+    "id": "1777295703255",
+    "name": "Chiroqchi salat",
+    "price": 20000,
+    "category": "Salatlar",
+    "desc": "",
+    "image_file_id": null,
+    "image_url": "/uploads/1777295702078.jpg"
+  },
+  {
+    "id": "1777295722872",
+    "name": "Achichuk",
+    "price": 10000,
+    "category": "Salatlar",
+    "desc": "",
+    "image_file_id": null,
+    "image_url": "/uploads/1777295721746.jpg"
+  },
+  {
+    "id": "1777295757919",
+    "name": "Sirli salat",
+    "price": 15000,
+    "category": "Salatlar",
+    "desc": "",
+    "image_file_id": null,
+    "image_url": "/uploads/1777295756775.jpg"
+  },
+  {
+    "id": "1777295785497",
+    "name": "Tovuqli salat",
+    "price": 25000,
+    "category": "Salatlar",
+    "desc": "",
+    "image_file_id": null,
+    "image_url": "/uploads/1777295784342.jpg"
+  },
+  {
+    "id": "1777400586551",
+    "name": "Osh",
+    "price": 100000,
+    "category": "Osh",
+    "desc": "",
+    "image_file_id": null,
+    "image_url": "/uploads/1777400585443.jpg"
+  }
+]

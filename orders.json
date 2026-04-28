@@ -1,0 +1,190 @@
+[
+  {
+    "id": "1777400301130",
+    "user_id": 1579550200,
+    "user_name": "BH7",
+    "items": [
+      {
+        "id": "1777099089901",
+        "name": "Pay osh",
+        "price": 45000,
+        "quantity": 1
+      }
+    ],
+    "total": 45000,
+    "date": "2026-04-28T18:18:21.130Z",
+    "status": "pending"
+  },
+  {
+    "id": "1777399051646",
+    "user_id": 1579550200,
+    "user_name": "BH7",
+    "items": [
+      {
+        "id": "1777295619474",
+        "name": "Achchiq osh",
+        "price": 60000,
+        "quantity": 3
+      }
+    ],
+    "total": 180000,
+    "date": "2026-04-28T17:57:31.646Z",
+    "status": "pending"
+  },
+  {
+    "id": "1777306774403",
+    "user_id": 1579550200,
+    "user_name": "BH7",
+    "items": [
+      {
+        "id": "1777099089901",
+        "name": "Pay osh",
+        "price": 45000,
+        "quantity": 1
+      }
+    ],
+    "total": 45000,
+    "date": "2026-04-27T16:19:34.403Z",
+    "status": "pending"
+  },
+  {
+    "id": "1777306320569",
+    "user_id": 8609088993,
+    "user_name": "BH7",
+    "items": [
+      {
+        "id": "1777295619474",
+        "name": "Achchiq osh",
+        "price": 60000,
+        "quantity": 1
+      }
+    ],
+    "total": 60000,
+    "date": "2026-04-27T16:12:00.569Z",
+    "status": "pending"
+  },
+  {
+    "id": "1777305750906",
+    "user_id": 8609088993,
+    "user_name": "BH7",
+    "items": [
+      {
+        "id": "1777099089901",
+        "name": "Pay osh",
+        "price": 45000,
+        "quantity": 1
+      },
+      {
+        "id": "1777295662192",
+        "name": "Ulfatlar osh",
+        "price": 80000,
+        "quantity": 1
+      }
+    ],
+    "total": 125000,
+    "date": "2026-04-27T16:02:30.906Z",
+    "status": "pending"
+  },
+  {
+    "id": "1777305596372",
+    "user_id": 1579550200,
+    "user_name": "BH7",
+    "items": [
+      {
+        "id": "1777295619474",
+        "name": "Achchiq osh",
+        "price": 60000,
+        "quantity": 1
+      }
+    ],
+    "total": 60000,
+    "date": "2026-04-27T15:59:56.372Z",
+    "status": "pending"
+  },
+  {
+    "id": "1777305309435",
+    "user_id": 1579550200,
+    "user_name": "BH7",
+    "items": [
+      {
+        "id": "1777099089901",
+        "name": "Pay osh",
+        "price": 45000,
+        "quantity": 2
+      }
+    ],
+    "total": 90000,
+    "date": "2026-04-27T15:55:09.435Z",
+    "status": "pending"
+  },
+  {
+    "id": "1777304051407",
+    "user_id": 1579550200,
+    "user_name": "BH7",
+    "items": [
+      {
+        "id": "1777099089901",
+        "name": "Pay osh",
+        "price": 45000,
+        "quantity": 1
+      }
+    ],
+    "total": 45000,
+    "date": "2026-04-27T15:34:11.407Z",
+    "status": "pending"
+  },
+  {
+    "id": "1777301495362",
+    "user_id": 1579550200,
+    "user_name": "BH7",
+    "items": [
+      {
+        "id": "1777099089901",
+        "name": "Pay osh",
+        "price": 45000,
+        "quantity": 6
+      }
+    ],
+    "total": 270000,
+    "date": "2026-04-27T14:51:35.362Z",
+    "status": "pending"
+  },
+  {
+    "id": "1777297611876",
+    "user_id": 1579550200,
+    "user_name": "BH7",
+    "items": [
+      {
+        "id": "1777103038903",
+        "name": "Coca-Cola ichimligi 2L",
+        "price": 20000,
+        "quantity": 2
+      }
+    ],
+    "total": 40000,
+    "date": "2026-04-27T13:46:51.876Z",
+    "status": "pending"
+  },
+  {
+    "id": "1777296854637",
+    "user_id": 1579550200,
+    "user_name": "BH7",
+    "items": [
+      {
+        "id": "1777103038903",
+        "name": "Coca-Cola ichimligi 2L",
+        "price": 20000,
+        "quantity": 2
+      },
+      {
+        "id": "1777295619474",
+        "name": "Achchiq osh",
+        "price": 60000,
+        "quantity": 1
+      }
+    ],
+    "total": 100000,
+    "date": "2026-04-27T13:34:14.637Z",
+    "status": "pending"
+  }
+]
